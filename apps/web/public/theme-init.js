@@ -1,0 +1,1 @@
+try {const theme=localStorage.getItem('recall.theme');if(['paper','operator','glass','graphite','soft','dusk'].includes(theme))document.documentElement.dataset.theme=theme;}catch {document.documentElement.dataset.theme='paper';}

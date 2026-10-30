@@ -1,0 +1,18 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { resolve } from 'node:path';
+import { createApp } from '../../apps/api/src/app/index.ts';
+import { parseConfig } from '../../apps/api/src/config/env.ts';
+import { openDatabase } from '../../database/adapters/sqlite.ts';
+import { startBackend } from '../../scripts/backend-manager.mjs';
+const token='t'.repeat(64);const headers={authorization:'Bearer '+token};const config=parseConfig({NODE_ENV:'production',RECALL_RUNTIME_TOKEN:token,LOG_LEVEL:'error'});
+for(const path of ['/health','/ready','/app/info'])test('Hono endpoint '+path,async()=>{const db=openDatabase(':memory:');try{const res=await createApp(config,db).request('/api'+path,{headers});assert.equal(res.status,200);}finally{db.close();}});
+test('API requires session authentication',async()=>{const db=openDatabase(':memory:');try{assert.equal((await createApp(config,db).request('/api/health')).status,401);}finally{db.close();}});
+test('API rejects direct browser origins',async()=>{const db=openDatabase(':memory:');try{assert.equal((await createApp(config,db).request('/api/health',{headers:{...headers,origin:'https://untrusted.invalid'}})).status,403);}finally{db.close();}});
+test('API request validation',async()=>{const db=openDatabase(':memory:');try{assert.equal((await createApp(config,db).request('/api/health?unexpected=1',{headers})).status,400);}finally{db.close();}});
+test('API not-found handling',async()=>{const db=openDatabase(':memory:');try{const response=await createApp(config,db).request('/api/unknown',{headers});assert.equal(response.status,404);assert.equal((await response.json()).error.code,'NOT_FOUND');}finally{db.close();}});
+test('API dependency failure returns 503',async()=>{const db=openDatabase(':memory:');const app=createApp(config,db);db.close();assert.equal((await app.request('/api/ready',{headers})).status,503);});
+test('Production errors redact internals',async()=>{const db=openDatabase(':memory:');try{const app=createApp(config,db);app.get('/failure',()=>{throw new Error('PRIVATE-MARKER');});const response=await app.request('/failure');assert.equal(response.status,500);assert.doesNotMatch(await response.text(),/PRIVATE-MARKER|stack/);}finally{db.close();}});
+test('Public app configuration excludes secrets',async()=>{const db=openDatabase(':memory:');try{const response=await createApp(config,db).request('/api/app/info',{headers});const body=await response.text();assert.doesNotMatch(body,/RECALL_RUNTIME_TOKEN|DATABASE_PATH/);assert.ok(!body.includes(token));assert.equal(JSON.parse(body).capabilities.ai,false);}finally{db.close();}});
+test('Startup environment validation',()=>{assert.throws(()=>parseConfig({}));assert.throws(()=>parseConfig({RECALL_RUNTIME_TOKEN:token,API_PORT:-1}));assert.throws(()=>parseConfig({RECALL_RUNTIME_TOKEN:token,DEPLOYMENT_MODE:'cloud'}));});
+test('Managed backend starts, checks readiness, authenticates and stops',async()=>{const backend=await startBackend({entry:resolve('apps/api/dist/index.cjs'),env:{API_PORT:'0',DATABASE_PATH:':memory:',LOG_LEVEL:'error'}});try{const response=await fetch(backend.baseUrl+'/api/ready',{headers:{authorization:'Bearer '+backend.token}});assert.equal(response.status,200);assert.equal((await response.json()).status,'ready');assert.equal((await fetch(backend.baseUrl+'/api/health')).status,401);}finally{await backend.stop();}await assert.rejects(()=>fetch(backend.baseUrl+'/api/health'));});

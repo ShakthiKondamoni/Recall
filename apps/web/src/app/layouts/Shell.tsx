@@ -1,0 +1,5 @@
+import { useState } from 'react';
+import { Outlet,useLocation } from 'react-router-dom';
+import { Sidebar } from '../../components/navigation/Sidebar.tsx';
+import { useRuntime } from '../providers/index.tsx';
+export function Shell(){const [collapsed,setCollapsed]=useState(false);const location=useLocation();const runtime=useRuntime();return <div className={'workspace '+(collapsed?'nav-collapsed':'')}><button className="skip-link" onClick={()=>document.getElementById('main-content')?.focus()}>Skip to content</button><Sidebar collapsed={collapsed} onToggle={()=>setCollapsed(v=>!v)}/><div className="content-shell"><header className="topbar"><span>Workspace <span className="breadcrumb">/</span> <strong>{location.pathname==='/settings'?'Settings':location.pathname==='/'?'Dashboard':'Page not found'}</strong></span><span className="mode-badge"><i/>{runtime.info.platform==='desktop'?'Desktop · local':'Web · local development'}</span></header><main id="main-content" tabIndex={-1}><Outlet/></main><footer className="page-footer"><span>Built for understanding. Designed for focus.</span><span>Recall · Foundation 01</span></footer></div></div>;}

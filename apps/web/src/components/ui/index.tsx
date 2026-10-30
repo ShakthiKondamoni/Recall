@@ -1,0 +1,5 @@
+import { useEffect,useRef,type ButtonHTMLAttributes,type ReactNode } from 'react';
+export function Button({children,className='',...props}:ButtonHTMLAttributes<HTMLButtonElement>){return <button className={'button '+className} {...props}>{children}</button>;}
+export function Card({children,className=''}:{children:ReactNode;className?:string}){return <section className={'card '+className}>{children}</section>;}
+export function Dialog({title,onClose,children}:{title:string;onClose:()=>void;children:ReactNode}){const ref=useRef<HTMLDialogElement>(null);useEffect(()=>{const dialog=ref.current;dialog?.showModal();return ()=>dialog?.close();},[]);return <dialog ref={ref} onCancel={onClose} aria-labelledby="dialog-title"><h2 id="dialog-title">{title}</h2>{children}<Button onClick={onClose}>Got it</Button></dialog>;}
+export function ErrorState({message,retry}:{message:string;retry:()=>void}){return <div className="error-state" role="alert"><p>{message}</p><Button onClick={retry}>Try again</Button></div>;}

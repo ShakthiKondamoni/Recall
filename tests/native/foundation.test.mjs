@@ -1,0 +1,17 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { mkdtempSync } from 'node:fs';
+import { join } from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
+import { openDatabase } from '../../database/adapters/sqlite.ts';
+import { LocalStorage } from '../../storage/local/index.ts';
+const directory=mkdtempSync(join(process.cwd(),'native-test-'));
+test('SQLite initializes and readiness verifies schema and foreign keys',()=>{const db=openDatabase(':memory:');db.check();db.close();});
+test('Settings round-trip, parameterization and unique-key upsert',()=>{const db=openDatabase(':memory:');db.settings.set('appearance.theme',"paper'; DROP TABLE app_settings; --");assert.equal(db.settings.get('appearance.theme'),"paper'; DROP TABLE app_settings; --");db.settings.set('appearance.theme','dusk');assert.equal(db.settings.get('appearance.theme'),'dusk');db.check();db.close();});
+test('Settings reject credential keys',()=>{const db=openDatabase(':memory:');assert.throws(()=>db.settings.set('api.key','secret'));db.close();});
+test('Migrations reapply without data loss',()=>{const path=join(directory,'reapply.db');let db=openDatabase(path);db.settings.set('appearance.theme','operator');db.close();db=openDatabase(path);assert.equal(db.settings.get('appearance.theme'),'operator');db.close();const raw=new DatabaseSync(path);assert.equal(raw.prepare('SELECT COUNT(*) AS n FROM schema_migrations').get().n,1);assert.equal(raw.prepare('SELECT COUNT(*) AS n FROM app_settings').get().n,1);raw.close();});
+test('Changed applied migration checksum fails safely',()=>{const path=join(directory,'checksum.db');const db=openDatabase(path);db.settings.set('appearance.theme','paper');db.close();const raw=new DatabaseSync(path);raw.prepare('UPDATE schema_migrations SET checksum=?').run('tampered');raw.close();assert.throws(()=>openDatabase(path),/checksum/);const inspection=new DatabaseSync(path);assert.equal(inspection.prepare('SELECT value FROM app_settings').get().value,'paper');inspection.close();});
+test('SQLite foreign-key constraint rejects orphan rows',()=>{const db=new DatabaseSync(':memory:');db.exec('PRAGMA foreign_keys=ON;CREATE TABLE parent(id TEXT PRIMARY KEY);CREATE TABLE child(parent_id TEXT REFERENCES parent(id));');assert.throws(()=>db.prepare('INSERT INTO child VALUES(?)').run('missing'),/FOREIGN KEY/);db.close();});
+test('Closed database fails readiness',()=>{const db=openDatabase(':memory:');db.close();assert.throws(()=>db.check());});
+test('Storage round-trip and exclusive writes',async()=>{const storage=new LocalStorage(join(directory,'objects'));assert.equal(await storage.get('missing'),undefined);await storage.put('object_1',new Uint8Array([1,2,3]));assert.deepEqual([...await storage.get('object_1')],[1,2,3]);await assert.rejects(()=>storage.put('object_1',new Uint8Array([4])),/EEXIST/);});
+test('Storage rejects traversal',async()=>{const storage=new LocalStorage(join(directory,'objects'));await assert.rejects(()=>storage.get('../outside'),/Invalid object key/);await assert.rejects(()=>storage.put('a/b',new Uint8Array()),/Invalid object key/);});
